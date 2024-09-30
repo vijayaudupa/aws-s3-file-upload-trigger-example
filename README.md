@@ -17,6 +17,28 @@ This project sets up an AWS Lambda function that is triggered by S3 events to in
 - An existing VPC and S3 bucket
 - Permissions to create IAM roles and Lambda functions
 
+## Architecture
+graph TD
+    S3[S3 Bucket] -->|1. File Upload| EN[S3 Event Notification]
+    EN -->|2. Trigger| LF[Lambda Function]
+    LF -->|3. Read Config| CB[Config Bucket]
+    LF -->|4. Get Auth Token| SM[Secrets Manager]
+    LF -->|5. Invoke API| AF[Airflow REST API]
+    LF -->|6. Log Events| CW[CloudWatch Logs]
+    LF -->|7. Emit Metrics| CM[CloudWatch Metrics]
+    CM -->|8. Trigger Alarm| AL[CloudWatch Alarm]
+    AL -->|9. Send Notification| SNS[SNS Topic]
+    SNS -->|10. Alert| U[User/Admin]
+
+    subgraph VPC
+    LF
+    end
+
+    classDef aws fill:#FF9900,stroke:#232F3E,stroke-width:2px,color:#232F3E;
+    classDef external fill:#1EC9E8,stroke:#232F3E,stroke-width:2px,color:#232F3E;
+    class S3,EN,LF,CB,SM,CW,CM,AL,SNS aws;
+    class AF,U external;
+
 ## Deployment
 
 1. Clone this repository:
