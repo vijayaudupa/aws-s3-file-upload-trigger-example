@@ -1,0 +1,174 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'S3 Event Triggered Lambda Function for Airflow API Invocation with Logging and Alerting'
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: Existing VPC ID where the Lambda function will be deployed
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: List of existing Subnet IDs where the Lambda function will be deployed
+  S3BucketName:
+    Type: String
+    Description: Name of the existing S3 bucket to monitor for trigger files
+  ConfigBucketName:
+    Type: String
+    Description: Name of the S3 bucket containing the configuration file
+  ConfigKey:
+    Type: String
+    Description: Key of the configuration file in the config bucket
+  PermissionsBoundaryPolicy:
+    Type: String
+    Description: ARN of the IAM permissions boundary policy to apply to the Lambda execution role
+  AirflowAuthToken:
+    Type: String
+    Description: Authentication token for Airflow API
+    NoEcho: true
+
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub 'arn:aws:s3:::${ConfigBucketName}/*'
+                  - !Sub 'arn:aws:s3:::${S3BucketName}/*'
+        - PolicyName: SecretsManagerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref AirflowAuthSecret
+        - PolicyName: CloudWatchLogsAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+      PermissionsBoundary: !Ref PermissionsBoundaryPolicy
+
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: lambda_function.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Code:
+        S3Bucket: !Ref ConfigBucketName
+        S3Key: lambda_function.zip
+      Runtime: python3.8
+      Timeout: 30
+      MemorySize: 128
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds: !Ref SubnetIds
+      Environment:
+        Variables:
+          CONFIG_BUCKET: !Ref ConfigBucketName
+          CONFIG_KEY: !Ref ConfigKey
+          S3_BUCKET: !Ref S3BucketName
+          AIRFLOW_SECRET_NAME: !Ref AirflowAuthSecret
+
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Lambda function
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
+
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt LambdaFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub 'arn:aws:s3:::${S3BucketName}'
+
+  AirflowAuthSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Authentication token for Airflow API
+      SecretString: !Sub '{"auth_token": "${AirflowAuthToken}"}'
+
+  LambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${LambdaFunction}"
+      RetentionInDays: 30
+
+  LambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Alarm if the Lambda function has any errors
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref LambdaFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref AlertTopic
+
+  APIInvocationFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Alarm if the Lambda function fails to invoke the Airflow API
+      Namespace: Lambda
+      MetricName: FailedAPIInvocation
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref LambdaFunction
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref AlertTopic
+
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: LambdaAlertTopic
+
+Outputs:
+  LambdaFunctionArn:
+    Description: ARN of the created Lambda function
+    Value: !GetAtt LambdaFunction.Arn
+  LambdaFunctionName:
+    Description: Name of the created Lambda function
+    Value: !Ref LambdaFunction
+  AlertTopicArn:
+    Description: ARN of the SNS topic for alerts
+    Value: !Ref AlertTopic

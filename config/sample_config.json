@@ -1,0 +1,10 @@
+{
+    "folder1/": {
+      "trigger_pattern": "trigger_\\d+\\.txt",
+      "api_url": "https://airflow1.example.com/api/v1/dags/example_dag/dagRuns"
+    },
+    "folder2/subfolder/": {
+      "trigger_pattern": "start_process_\\w+\\.json",
+      "api_url": "https://airflow2.example.com/api/v1/dags/another_dag/dagRuns"
+    }
+  }

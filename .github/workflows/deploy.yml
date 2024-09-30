@@ -1,0 +1,50 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.8'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+
+    - name: Package Lambda function
+      run: |
+        zip -j lambda_function.zip src/lambda_function.py
+
+    - name: Upload Lambda package to S3
+      run: |
+        aws s3 cp lambda_function.zip s3://${{ secrets.CONFIG_BUCKET_NAME }}/lambda_function.zip
+
+    - name: Deploy CloudFormation stack
+      run: |
+        aws cloudformation deploy \
+          --template-file templates/cloudformation.yaml \
+          --stack-name AirflowTriggerStack \
+          --parameter-overrides \
+            VpcId=${{ secrets.VPC_ID }} \
+            SubnetIds=${{ secrets.SUBNET_IDS }} \
+            S3BucketName=${{ secrets.S3_BUCKET_NAME }} \
+            ConfigBucketName=${{ secrets.CONFIG_BUCKET_NAME }} \
+            ConfigKey=config.json \
+            PermissionsBoundaryPolicy=${{ secrets.PERMISSIONS_BOUNDARY_POLICY }} \
+          --capabilities CAPABILITY_IAM
