@@ -18,7 +18,8 @@ This project sets up an AWS Lambda function that is triggered by S3 events to in
 - Permissions to create IAM roles and Lambda functions
 
 ## Architecture
-graph TD
+
+graph TD;
     S3[S3 Bucket] -->|1. File Upload| EN[S3 Event Notification]
     EN -->|2. Trigger| LF[Lambda Function]
     LF -->|3. Read Config| CB[Config Bucket]
