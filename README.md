@@ -19,6 +19,7 @@ This project sets up an AWS Lambda function that is triggered by S3 events to in
 
 ## Architecture
 
+```mermaid
 graph TD;
     S3[S3 Bucket] -->|1. File Upload| EN[S3 Event Notification]
     EN -->|2. Trigger| LF[Lambda Function]
@@ -39,6 +40,7 @@ graph TD;
     classDef external fill:#1EC9E8,stroke:#232F3E,stroke-width:2px,color:#232F3E;
     class S3,EN,LF,CB,SM,CW,CM,AL,SNS aws;
     class AF,U external;
+```
 
 ## Deployment
 
